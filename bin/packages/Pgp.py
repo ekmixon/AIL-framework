@@ -18,9 +18,7 @@ config_loader = None
 pgp = Correlation.Correlation('pgpdump', ['key', 'mail', 'name'])
 
 def get_pgp(request_dict, pgp_type):
-    # basic verification
-    res = pgp.verify_correlation_field_request(request_dict, pgp_type)
-    if res:
+    if res := pgp.verify_correlation_field_request(request_dict, pgp_type):
         return res
     # cerify address
     field_name = request_dict.get(pgp_type)

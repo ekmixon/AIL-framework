@@ -23,15 +23,11 @@ def search_cve(message):
     content = paste.get_p_content()
     # regex to find CVE
     reg_cve = re.compile(r'(CVE-)[1-2]\d{1,4}-\d{1,5}')
-    # list of the regex results in the Paste, may be null
-    results = set(reg_cve.findall(content))
+    if results := set(reg_cve.findall(content)):
+        print(f'{paste.p_name} contains CVEs')
+        publisher.warning(f'{paste.p_name} contains CVEs')
 
-    # if the list is greater than 2, we consider the Paste may contain a list of cve
-    if len(results) > 0:
-        print('{} contains CVEs'.format(paste.p_name))
-        publisher.warning('{} contains CVEs'.format(paste.p_name))
-
-        msg = 'infoleak:automatic-detection="cve";{}'.format(filepath)
+        msg = f'infoleak:automatic-detection="cve";{filepath}'
         p.populate_set_out(msg, 'Tags')
         #Send to duplicate
         p.populate_set_out(filepath, 'Duplicate')
@@ -57,7 +53,7 @@ if __name__ == '__main__':
         # Get one message from the input queue
         message = p.get_from_set()
         if message is None:
-            publisher.debug("{} queue is empty, waiting".format(config_section))
+            publisher.debug(f"{config_section} queue is empty, waiting")
             time.sleep(1)
             continue
 

@@ -20,10 +20,7 @@ class User(UserMixin):
         self.r_serv_db = config_loader.get_redis_conn("ARDB_DB")
         config_loader = None
 
-        if self.r_serv_db.hexists('user:all', id):
-            self.id = id
-        else:
-            self.id = "__anonymous__"
+        self.id = id if self.r_serv_db.hexists('user:all', id) else "__anonymous__"
 
     # return True or False
     #def is_authenticated():
@@ -32,14 +29,11 @@ class User(UserMixin):
     #def is_anonymous():
 
     @classmethod
-    def get(self_class, id):
-        return self_class(id)
+    def get(cls, id):
+        return cls(id)
 
     def user_is_anonymous(self):
-        if self.id == "__anonymous__":
-            return True
-        else:
-            return False
+        return self.id == "__anonymous__"
 
     def check_password(self, password):
         if self.user_is_anonymous():
@@ -47,19 +41,13 @@ class User(UserMixin):
 
         password = password.encode()
         hashed_password = self.r_serv_db.hget('user:all', self.id).encode()
-        if bcrypt.checkpw(password, hashed_password):
-            return True
-        else:
-            return False
+        return bool(bcrypt.checkpw(password, hashed_password))
 
     def request_password_change(self):
-        if self.r_serv_db.hget('user_metadata:{}'.format(self.id), 'change_passwd') == 'True':
-            return True
-        else:
-            return False
+        return (
+            self.r_serv_db.hget(f'user_metadata:{self.id}', 'change_passwd')
+            == 'True'
+        )
 
     def is_in_role(self, role):
-        if self.r_serv_db.sismember('user_role:{}'.format(role), self.id):
-            return True
-        else:
-            return False
+        return bool(self.r_serv_db.sismember(f'user_role:{role}', self.id))

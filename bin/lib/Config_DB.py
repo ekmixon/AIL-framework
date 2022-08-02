@@ -58,8 +58,7 @@ def get_config_type(section, field):
 
 # # TODO: add set, dict, list and select_(multiple_)value
 def is_valid_type(obj, section, field, value_type=None):
-    res = isinstance(obj, get_config_type(section, field))
-    return res
+    return isinstance(obj, get_config_type(section, field))
 
 def reset_default_config():
     pass
@@ -80,27 +79,27 @@ def get_config(section, field):
         return get_default_config_value(section, field)
 
     # load default config section
-    if not r_serv_db.exists('config:global:{}'.format(section)):
+    if not r_serv_db.exists(f'config:global:{section}'):
         save_config(section, field, get_default_config_value(section, field))
         return get_default_config_value(section, field)
 
     return r_serv_db.hget(f'config:global:{section}', field)
 
 def get_config_dict_by_section(section):
-    config_dict = {}
-    for field in get_all_config_fields_by_section(section):
-        config_dict[field] = get_config(section, field)
-    return config_dict
+    return {
+        field: get_config(section, field)
+        for field in get_all_config_fields_by_section(section)
+    }
 
 def save_config(section, field, value, value_type=None): ###########################################
-    if section in default_config:
-        if is_valid_type(value, section, field, value_type=value_type):
-            if value_type in ['list', 'set', 'dict']:
-                pass
-            else:
-                r_serv_db.hset(f'config:global:{section}', field, value)
-                # used by check_integrity
-                r_serv_db.sadd('config:all_global_section', field, value)
+    if (
+        section in default_config
+        and is_valid_type(value, section, field, value_type=value_type)
+        and value_type not in ['list', 'set', 'dict']
+    ):
+        r_serv_db.hset(f'config:global:{section}', field, value)
+        # used by check_integrity
+        r_serv_db.sadd('config:all_global_section', field, value)
 
 # check config value + type
 def check_integrity():
@@ -132,23 +131,22 @@ def get_config_documentation(section, field):
 #     form = F(request.POST, ...)
 
 def get_field_full_config(section, field):
-    dict_config = {}
-    dict_config['value'] = get_config(section, field)
+    dict_config = {'value': get_config(section, field)}
     dict_config['type'] = get_config_type(section, field)
     dict_config['info'] = get_config_documentation(section, field)
     return dict_config
 
 def get_full_config_by_section(section):
-    dict_config = {}
-    for field in get_all_config_fields_by_section(section):
-        dict_config[field] = get_field_full_config(section, field)
-    return dict_config
+    return {
+        field: get_field_full_config(section, field)
+        for field in get_all_config_fields_by_section(section)
+    }
 
 def get_full_config():
-    dict_config = {}
-    for section in get_all_config_sections():
-        dict_config[section] = get_full_config_by_section(section)
-    return dict_config
+    return {
+        section: get_full_config_by_section(section)
+        for section in get_all_config_sections()
+    }
 
 if __name__ == '__main__':
     res = get_full_config()

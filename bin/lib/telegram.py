@@ -17,4 +17,4 @@ def save_item_correlation(username, item_id, item_date):
     Username.save_item_correlation('telegram', username, item_id, item_date)
 
 def save_telegram_invite_hash(invite_hash, item_id):
-    r_serv_crawler.sadd('telegram:invite_code', '{};{}'.format(invite_hash, item_id))
+    r_serv_crawler.sadd('telegram:invite_code', f'{invite_hash};{item_id}')

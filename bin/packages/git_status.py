@@ -14,13 +14,10 @@ def set_default_remote(new_origin_url, verbose=False):
     process = subprocess.run(['git', 'remote', 'set-url', 'origin', new_origin_url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if process.returncode == 0:
         res = process.stdout
-        if res == b'':
-            return True
-        else:
-            return False
+        return res == b''
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return False
 
 # Check if working directory is clean
@@ -31,13 +28,10 @@ def is_working_directory_clean(verbose=False):
     process = subprocess.run(['git', 'ls-files', '-m'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if process.returncode == 0:
         res = process.stdout
-        if res == b'':
-            return True
-        else:
-            return False
+        return res == b''
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return False
 
 # Check if this git is a fork
@@ -50,13 +44,10 @@ def is_not_fork(origin_repo, verbose=False):
         res = process.stdout.decode()
         if verbose:
             print(res)
-        if 'origin	{}'.format(origin_repo) in res:
-            return True
-        else:
-            return False
+        return 'origin	{}'.format(origin_repo) in res
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return False
 
 # Get current branch
@@ -73,7 +64,7 @@ def get_current_branch(verbose=False):
 
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return ''
 
 # Get last commit id on master branch from remote
@@ -90,7 +81,7 @@ def get_last_commit_id_from_remote(branch='master', verbose=False):
 
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return ''
 
 # Get last commit id on master branch from local
@@ -107,7 +98,7 @@ def get_last_commit_id_from_local(branch='master', verbose=False):
 
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return ''
 
 # Get last local tag
@@ -124,7 +115,7 @@ def get_last_tag_from_local(verbose=False):
 
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return ''
 
 # Get last local tag
@@ -141,7 +132,7 @@ def get_last_tag_from_remote(verbose=False):
 
     else:
         if verbose:
-            print('{}{}{}'.format(TERMINAL_RED, process.stderr.decode(), TERMINAL_DEFAULT))
+            print(f'{TERMINAL_RED}{process.stderr.decode()}{TERMINAL_DEFAULT}')
         return ''
 
 if __name__ == "__main__":

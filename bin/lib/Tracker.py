@@ -52,67 +52,69 @@ def is_valid_regex(tracker_regex):
         return False
 
 def is_valid_mail(email):
-    result = email_regex.match(email)
-    if result:
-        return True
-    else:
-        return False
+    return bool(result := email_regex.match(email))
 
 def verify_mail_list(mail_list):
-    for mail in mail_list:
-        if not is_valid_mail(mail):
-            return ({'status': 'error', 'reason': 'Invalid email', 'value': mail}, 400)
-    return None
+    return next(
+        (
+            (
+                {'status': 'error', 'reason': 'Invalid email', 'value': mail},
+                400,
+            )
+            for mail in mail_list
+            if not is_valid_mail(mail)
+        ),
+        None,
+    )
 
 ##-- UTILS --##
 ###############
 
 def get_tracker_by_uuid(tracker_uuid):
-    return r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'tracked')
+    return r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'tracked')
 
 def get_tracker_type(tracker_uuid):
-    return r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'type')
+    return r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'type')
 
 def get_tracker_level(tracker_uuid):
-    return int(r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'level'))
+    return int(r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'level'))
 
 def get_tracker_user_id(tracker_uuid):
-    return r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'user_id')
+    return r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'user_id')
 
 def get_tracker_uuid_list(tracker, tracker_type):  ######################################################### USE ME
-    return list(r_serv_tracker.smembers('all:tracker_uuid:{}:{}'.format(tracker_type, tracker)))
+    return list(
+        r_serv_tracker.smembers(f'all:tracker_uuid:{tracker_type}:{tracker}')
+    )
 
 def get_tracker_tags(tracker_uuid):
-    return list(r_serv_tracker.smembers('tracker:tags:{}'.format(tracker_uuid)))
+    return list(r_serv_tracker.smembers(f'tracker:tags:{tracker_uuid}'))
 
 def get_tracker_mails(tracker_uuid):
-    return list(r_serv_tracker.smembers('tracker:mail:{}'.format(tracker_uuid)))
+    return list(r_serv_tracker.smembers(f'tracker:mail:{tracker_uuid}'))
 
 def get_tracker_uuid_sources(tracker_uuid):
     return list(r_serv_tracker.smembers(f'tracker:sources:{tracker_uuid}'))
 
 def get_tracker_description(tracker_uuid):
-    return r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'description')
+    return r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'description')
 
 def get_tracker_first_seen(tracker_uuid):
-    res = r_serv_tracker.zrange('tracker:stat:{}'.format(tracker_uuid), 0, 0)
-    if res:
+    if res := r_serv_tracker.zrange(f'tracker:stat:{tracker_uuid}', 0, 0):
         return res[0]
     else:
         return None
 
 def get_tracker_last_seen(tracker_uuid):
-    res = r_serv_tracker.zrevrange('tracker:stat:{}'.format(tracker_uuid), 0, 0)
-    if res:
+    if res := r_serv_tracker.zrevrange(f'tracker:stat:{tracker_uuid}', 0, 0):
         return res[0]
     else:
         return None
 
 def get_tracker_metedata(tracker_uuid, user_id=False, description=False, level=False, tags=False, mails=False, sources=True, sparkline=False):
-    dict_uuid = {}
-    dict_uuid['tracker'] = get_tracker_by_uuid(tracker_uuid)
+    dict_uuid = {'tracker': get_tracker_by_uuid(tracker_uuid)}
     dict_uuid['type'] = get_tracker_type(tracker_uuid)
-    dict_uuid['date'] = r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'date')
+    dict_uuid['date'] = r_serv_tracker.hget(f'tracker:{tracker_uuid}', 'date')
     dict_uuid['description'] = get_tracker_description(tracker_uuid)
     dict_uuid['first_seen'] = get_tracker_first_seen(tracker_uuid)
     dict_uuid['last_seen'] = get_tracker_last_seen(tracker_uuid)
@@ -135,7 +137,10 @@ def get_tracker_sparkline(tracker_uuid, num_day=6):
     date_range_sparkline = Date.get_date_range(num_day)
     sparklines_value = []
     for date_day in date_range_sparkline:
-        nb_seen_this_day = r_serv_tracker.scard('tracker:item:{}:{}'.format(tracker_uuid, date_day))
+        nb_seen_this_day = r_serv_tracker.scard(
+            f'tracker:item:{tracker_uuid}:{date_day}'
+        )
+
         if nb_seen_this_day is None:
             nb_seen_this_day = 0
         sparklines_value.append(int(nb_seen_this_day))
@@ -147,18 +152,19 @@ def add_tracked_item(tracker_uuid, item_id):
     res = r_serv_tracker.sadd(f'tracker:item:{tracker_uuid}:{item_date}', item_id)
     # track nb item by date
     if res == 1:
-        r_serv_tracker.zincrby('tracker:stat:{}'.format(tracker_uuid), int(item_date), 1)
+        r_serv_tracker.zincrby(f'tracker:stat:{tracker_uuid}', int(item_date), 1)
 
 
 def get_email_subject(tracker_uuid):
     tracker_description = get_tracker_description(tracker_uuid)
-    if not tracker_description:
-        return "AIL framework: Tracker Alert"
-    else:
-        return 'AIL framework: {}'.format(tracker_description)
+    return (
+        f'AIL framework: {tracker_description}'
+        if tracker_description
+        else "AIL framework: Tracker Alert"
+    )
 
 def get_tracker_last_updated_by_type(tracker_type):
-    epoch_update = r_serv_tracker.get('tracker:refresh:{}'.format(tracker_type))
+    epoch_update = r_serv_tracker.get(f'tracker:refresh:{tracker_type}')
     if not epoch_update:
         epoch_update = 0
     return float(epoch_update)
@@ -172,37 +178,43 @@ def trigger_trackers_refresh(tracker_type):
 
 # # TODO: use new package => duplicate fct
 def is_in_role(user_id, role):
-    if r_serv_db.sismember('user_role:{}'.format(role), user_id):
-        return True
-    else:
-        return False
+    return bool(r_serv_db.sismember(f'user_role:{role}', user_id))
 
 def is_tracker_in_global_level(tracker, tracker_type):
-    res = r_serv_tracker.smembers('all:tracker_uuid:{}:{}'.format(tracker_type, tracker))
-    if res:
+    if res := r_serv_tracker.smembers(
+        f'all:tracker_uuid:{tracker_type}:{tracker}'
+    ):
         for elem_uuid in res:
-            if r_serv_tracker.hget('tracker:{}'.format(elem_uuid), 'level')=='1':
+            if r_serv_tracker.hget(f'tracker:{elem_uuid}', 'level') == '1':
                 return True
     return False
 
 def is_tracker_in_user_level(tracker, tracker_type, user_id):
-    res = r_serv_tracker.smembers('user:tracker:{}'.format(user_id))
-    if res:
+    if res := r_serv_tracker.smembers(f'user:tracker:{user_id}'):
         for elem_uuid in res:
-            if r_serv_tracker.hget('tracker:{}'.format(elem_uuid), 'tracked')== tracker:
-                if r_serv_tracker.hget('tracker:{}'.format(elem_uuid), 'type')== tracker_type:
-                    return True
+            if (
+                r_serv_tracker.hget(f'tracker:{elem_uuid}', 'tracked')
+                == tracker
+                and r_serv_tracker.hget(f'tracker:{elem_uuid}', 'type')
+                == tracker_type
+            ):
+                return True
     return False
 
 def api_is_allowed_to_edit_tracker(tracker_uuid, user_id):
     if not is_valid_uuid_v4(tracker_uuid):
         return ({"status": "error", "reason": "Invalid uuid"}, 400)
-    tracker_creator = r_serv_tracker.hget('tracker:{}'.format(tracker_uuid), 'user_id')
-    if not tracker_creator:
+    if tracker_creator := r_serv_tracker.hget(
+        f'tracker:{tracker_uuid}', 'user_id'
+    ):
+        return (
+            ({"status": "error", "reason": "Access Denied"}, 403)
+            if not is_in_role(user_id, 'admin') and user_id != tracker_creator
+            else ({"uuid": tracker_uuid}, 200)
+        )
+
+    else:
         return ({"status": "error", "reason": "Unknown uuid"}, 404)
-    if not is_in_role(user_id, 'admin') and user_id != tracker_creator:
-        return ({"status": "error", "reason": "Access Denied"}, 403)
-    return ({"uuid": tracker_uuid}, 200)
 
 
 ##-- ACL --##
@@ -212,12 +224,11 @@ def api_validate_tracker_to_add(tracker , tracker_type, nb_words=1):
     if tracker_type=='regex':
         if not is_valid_regex(tracker):
             return ({"status": "error", "reason": "Invalid regex"}, 400)
-    elif tracker_type=='word' or tracker_type=='set':
+    elif tracker_type in ['word', 'set']:
         # force lowercase
         tracker = tracker.lower()
         word_set = set(tracker)
-        set_inter = word_set.intersection(special_characters)
-        if set_inter:
+        if set_inter := word_set.intersection(special_characters):
             return ({"status": "error", "reason": f'special character(s) not allowed: {set_inter}', "message": "Please use a python regex or remove all special characters"}, 400)
         words = tracker.split()
         # not a word
@@ -236,11 +247,9 @@ def api_validate_tracker_to_add(tracker , tracker_type, nb_words=1):
             words_set = set(words)
             words_set = sorted(words_set)
 
-            if nb_words > len(words_set):
-                nb_words = len(words_set)
-
+            nb_words = min(nb_words, len(words_set))
             tracker = ",".join(words_set)
-            tracker = "{};{}".format(tracker, nb_words)
+            tracker = f"{tracker};{nb_words}"
 
     elif tracker_type=='yara_custom':
         if not is_valid_yara_rule(tracker):

@@ -25,7 +25,7 @@ def is_luhn_valid(card_number):
 
     """
     r = [int(ch) for ch in str(card_number)][::-1]
-    return (sum(r[0::2]) + sum(sum(divmod(d*2, 10)) for d in r[1::2])) % 10 == 0
+    return (sum(r[::2]) + sum(sum(divmod(d*2, 10)) for d in r[1::2])) % 10 == 0
 
 
 def checking_MX_record(r_serv, MXdomains, addr_dns):
@@ -41,7 +41,6 @@ def checking_MX_record(r_serv, MXdomains, addr_dns):
     """
 
     score = 0
-    WalidMX = set([])
     validMX = {}
     num = len(MXdomains)
     resolver = dns.resolver.Resolver()
@@ -50,53 +49,48 @@ def checking_MX_record(r_serv, MXdomains, addr_dns):
     resolver.lifetime = 2.0
     if MXdomains != []:
 
-            for MXdomain in MXdomains:
-                try:
-                    MXdomain = MXdomain[1:]
+        WalidMX = set([])
+        for MXdomain in MXdomains:
+            try:
+                MXdomain = MXdomain[1:]
                     # Already in Redis living.
-                    if r_serv.exists(MXdomain):
-                        score += 1
-                        WalidMX.add(MXdomain)
-                        validMX[MXdomain] = validMX.get(MXdomain, 0) + 1
-                    # Not already in Redis
-                    else:
-                        # If I'm Walid MX domain
-                        if resolver.query(MXdomain, rdtype=dns.rdatatype.MX):
-                            # Gonna be added in redis.
-                            r_serv.setex(MXdomain, 1, timedelta(days=1))
-                            score += 1
-                            WalidMX.add(MXdomain)
-                            validMX[MXdomain] = validMX.get(MXdomain, 0) + 1
-                        else:
-                            pass
-
-                except dns.resolver.NoNameservers:
-                    publisher.debug('NoNameserver, No non-broken nameservers are available to answer the query.')
-                    print('NoNameserver, No non-broken nameservers are available to answer the query.')
-
-                except dns.resolver.NoAnswer:
-                    publisher.debug('NoAnswer, The response did not contain an answer to the question.')
-                    print('NoAnswer, The response did not contain an answer to the question.')
-
-                except dns.name.EmptyLabel:
-                    publisher.debug('SyntaxError: EmptyLabel')
-                    print('SyntaxError: EmptyLabel')
-
-                except dns.resolver.NXDOMAIN:
-                    r_serv.setex(MXdomain[1:], 1, timedelta(days=1))
-                    publisher.debug('The query name does not exist.')
-                    print('The query name does not exist.')
-
-                except dns.name.LabelTooLong:
-                    publisher.debug('The Label is too long')
-                    print('The Label is too long')
-
-                except dns.exception.Timeout:
-                    print('dns timeout')
+                if r_serv.exists(MXdomain):
+                    score += 1
+                    WalidMX.add(MXdomain)
+                    validMX[MXdomain] = validMX.get(MXdomain, 0) + 1
+                elif resolver.query(MXdomain, rdtype=dns.rdatatype.MX):
+                    # Gonna be added in redis.
                     r_serv.setex(MXdomain, 1, timedelta(days=1))
+                    score += 1
+                    WalidMX.add(MXdomain)
+                    validMX[MXdomain] = validMX.get(MXdomain, 0) + 1
+            except dns.resolver.NoNameservers:
+                publisher.debug('NoNameserver, No non-broken nameservers are available to answer the query.')
+                print('NoNameserver, No non-broken nameservers are available to answer the query.')
 
-                except Exception as e:
-                    print(e)
+            except dns.resolver.NoAnswer:
+                publisher.debug('NoAnswer, The response did not contain an answer to the question.')
+                print('NoAnswer, The response did not contain an answer to the question.')
+
+            except dns.name.EmptyLabel:
+                publisher.debug('SyntaxError: EmptyLabel')
+                print('SyntaxError: EmptyLabel')
+
+            except dns.resolver.NXDOMAIN:
+                r_serv.setex(MXdomain[1:], 1, timedelta(days=1))
+                publisher.debug('The query name does not exist.')
+                print('The query name does not exist.')
+
+            except dns.name.LabelTooLong:
+                publisher.debug('The Label is too long')
+                print('The Label is too long')
+
+            except dns.exception.Timeout:
+                print('dns timeout')
+                r_serv.setex(MXdomain, 1, timedelta(days=1))
+
+            except Exception as e:
+                print(e)
 
     publisher.debug("emails before: {0} after: {1} (valid)".format(num, score))
     #return (num, WalidMX)
@@ -119,17 +113,11 @@ def checking_A_record(r_serv, domains_set):
             if r_serv.exists(Adomain):
                 score += 1
                 WalidA.add(Adomain)
-            # Not already in Redis
-            else:
-                # If I'm Walid domain
-                if resolver.query(Adomain, rdtype=dns.rdatatype.A):
-                    # Gonna be added in redis.
-                    r_serv.setex(Adomain, 1, timedelta(days=1))
-                    score += 1
-                    WalidA.add(Adomain)
-                else:
-                    pass
-
+            elif resolver.query(Adomain, rdtype=dns.rdatatype.A):
+                # Gonna be added in redis.
+                r_serv.setex(Adomain, 1, timedelta(days=1))
+                score += 1
+                WalidA.add(Adomain)
         except dns.resolver.NoNameservers:
             publisher.debug('NoNameserver, No non-broken nameservers are available to answer the query.')
 

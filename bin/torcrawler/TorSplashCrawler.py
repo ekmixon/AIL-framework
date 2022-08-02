@@ -124,7 +124,8 @@ class TorSplashCrawler():
             self.start_urls = url
             self.domains = [domain]
             self.port = str(port)
-            date_str = '{}/{}/{}'.format(date['date_day'][0:4], date['date_day'][4:6], date['date_day'][6:8])
+            date_str = f"{date['date_day'][:4]}/{date['date_day'][4:6]}/{date['date_day'][6:8]}"
+
             self.full_date = date['date_day']
             self.date_month = date['date_month']
             self.date_epoch = int(date['epoch'])
@@ -181,13 +182,9 @@ class TorSplashCrawler():
             #'type': 'LUA_INIT_ERROR', 'source': '[string "..."]', 'line_number': 53},
             #'error': 400, 'description': 'Error happened while executing Lua script'}
             if response.status == 504:
-                # no response
-                #print('504 detected')
-                pass
-
-            # LUA ERROR # # TODO: logs errors
-            elif 'error' in response.data:
-                if(response.data['error'] == 'network99'):
+                return
+            if 'error' in response.data:
+                if (response.data['error'] == 'network99'):
                     ## splash restart ##
                     error_retry = response.meta.get('error_retry', 0)
                     if error_retry < 3:
@@ -197,10 +194,7 @@ class TorSplashCrawler():
 
                         self.logger.error('Splash, ResponseNeverReceived for %s, retry in 10s ...', url)
                         time.sleep(10)
-                        if 'cookies' in response.data:
-                            all_cookies = response.data['cookies'] # # TODO:  use initial cookie ?????
-                        else:
-                            all_cookies = []
+                        all_cookies = response.data['cookies'] if 'cookies' in response.data else []
                         l_cookies = self.build_request_arg(all_cookies)
                         yield SplashRequest(
                             url,
@@ -225,12 +219,10 @@ class TorSplashCrawler():
                     print(response.data['error'])
 
             elif response.status != 200:
-                print('other response: {}'.format(response.status))
+                print(f'other response: {response.status}')
                 # detect connection to proxy refused
                 error_log = (json.loads(response.body.decode()))
                 print(error_log)
-            #elif crawlers.is_redirection(self.domains[0], response.data['last_url']):
-            #    pass # ignore response
             else:
                 ## TEST MODE ##
                 if self.requested_mode == 'test':
@@ -251,15 +243,12 @@ class TorSplashCrawler():
                     crawlers.add_domain_root_item(item_id, self.domain_type, self.domains[0], self.date_epoch, self.port)
                     crawlers.create_domain_metadata(self.domain_type, self.domains[0], self.port, self.full_date, self.date_month)
 
-                if 'cookies' in response.data:
-                    all_cookies = response.data['cookies']
-                else:
-                    all_cookies = []
-
+                all_cookies = response.data['cookies'] if 'cookies' in response.data else []
                 # SCREENSHOT
                 if 'png' in response.data and self.png:
-                    sha256_string = Screenshot.save_crawled_screeshot(response.data['png'], 5000000, f_save=self.requested_mode)
-                    if sha256_string:
+                    if sha256_string := Screenshot.save_crawled_screeshot(
+                        response.data['png'], 5000000, f_save=self.requested_mode
+                    ):
                         Screenshot.save_item_relationship(sha256_string, item_id)
                         Screenshot.save_domain_relationship(sha256_string, self.domains[0])
                 # HAR
@@ -324,5 +313,5 @@ class TorSplashCrawler():
             self.r_serv_log_submit.hincrby("mixer_cache:list_feeder", "crawler", 1)
 
             # tag crawled paste
-            msg = 'infoleak:submission="crawler";{}'.format(item_id)
+            msg = f'infoleak:submission="crawler";{item_id}'
             self.p.populate_set_out(msg, 'Tags')

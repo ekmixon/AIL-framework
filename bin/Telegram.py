@@ -51,18 +51,16 @@ def extract_data_from_telegram_url(item_id, item_date, base_url, url_path):
     # username len > 5, a-z A-Z _
     if len(url_path) == 1:
         username = url_path[0].lower()
-        username = regex_username.search(username)
-        if username:
+        if username := regex_username.search(username):
             username = username[0].replace('\\', '')
             if len(username) > 5:
-                print('username: {}'.format(username))
+                print(f'username: {username}')
                 telegram.save_item_correlation(username, item_id, item_date)
     elif url_path[0] == 'joinchat':
-        invite_hash = regex_join_hash.search(url_path[1])
-        if invite_hash:
+        if invite_hash := regex_join_hash.search(url_path[1]):
             invite_hash = invite_hash[0]
             telegram.save_telegram_invite_hash(invite_hash, item_id)
-            print('invite code: {}'.format(invite_hash))
+            print(f'invite code: {invite_hash}')
             invite_code_found = True
     return invite_code_found
 
@@ -81,20 +79,18 @@ def extract_data_from_tg_url(item_id, item_date, tg_link):
         if url.query[:7] == 'domain=':
             # remove domain=
             username = url.query[7:]
-            username = regex_username.search(username)
-            if username:
+            if username := regex_username.search(username):
                 username = username[0].replace('\\', '')
                 if len(username) > 5:
-                    print('username: {}'.format(username))
+                    print(f'username: {username}')
                     telegram.save_item_correlation(username, item_id, item_date)
     elif url.netloc == 'join' and len(url.query) > 7:
         if url.query[:7] == 'invite=':
             invite_hash = url.query[7:]
-            invite_hash = regex_join_hash.search(invite_hash)
-            if invite_hash:
+            if invite_hash := regex_join_hash.search(invite_hash):
                 invite_hash = invite_hash[0]
                 telegram.save_telegram_invite_hash(invite_hash, item_id)
-                print('invite code: {}'.format(invite_hash))
+                print(f'invite code: {invite_hash}')
                 invite_code_found = True
 
     elif url.netloc == 'login' and len(url.query) > 5:
@@ -143,7 +139,7 @@ def search_telegram(item_id, item_date, item_content):
 
     if invite_code_found:
         #tags
-        msg = 'infoleak:automatic-detection="telegram-invite-hash";{}'.format(item_id)
+        msg = f'infoleak:automatic-detection="telegram-invite-hash";{item_id}'
         p.populate_set_out(msg, 'Tags')
 
 
@@ -165,7 +161,7 @@ if __name__ == "__main__":
         # Get one message from the input queue
         item_id = p.get_from_set()
         if item_id is None:
-            publisher.debug("{} queue is empty, waiting".format(config_section))
+            publisher.debug(f"{config_section} queue is empty, waiting")
             time.sleep(1)
             continue
 

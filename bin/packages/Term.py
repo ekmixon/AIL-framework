@@ -50,36 +50,39 @@ def is_valid_uuid_v4(UUID):
 
 # # TODO: use new package => duplicate fct
 def is_in_role(user_id, role):
-    if r_serv_db.sismember('user_role:{}'.format(role), user_id):
-        return True
-    else:
-        return False
+    return bool(r_serv_db.sismember(f'user_role:{role}', user_id))
 
 def check_term_uuid_valid_access(term_uuid, user_id):
     if not is_valid_uuid_v4(term_uuid):
         return ({"status": "error", "reason": "Invalid uuid"}, 400)
-    level = r_serv_term.hget('tracker:{}'.format(term_uuid), 'level')
-    if not level:
+    if level := r_serv_term.hget(f'tracker:{term_uuid}', 'level'):
+        return (
+            ({"status": "error", "reason": "Unknown uuid"}, 404)
+            if level == 0
+            and r_serv_term.hget(f'tracker:{term_uuid}', 'user_id') != user_id
+            and not is_in_role(user_id, 'admin')
+            else None
+        )
+
+    else:
         return ({"status": "error", "reason": "Unknown uuid"}, 404)
-    if level == 0:
-        if r_serv_term.hget('tracker:{}'.format(term_uuid), 'user_id') != user_id:
-            if not is_in_role(user_id, 'admin'):
-                return ({"status": "error", "reason": "Unknown uuid"}, 404)
-    return None
 
 
 def is_valid_mail(email):
-    result = email_regex.match(email)
-    if result:
-        return True
-    else:
-        return False
+    return bool(result := email_regex.match(email))
 
 def verify_mail_list(mail_list):
-    for mail in mail_list:
-        if not is_valid_mail(mail):
-            return ({'status': 'error', 'reason': 'Invalid email', 'value': mail}, 400)
-    return None
+    return next(
+        (
+            (
+                {'status': 'error', 'reason': 'Invalid email', 'value': mail},
+                400,
+            )
+            for mail in mail_list
+            if not is_valid_mail(mail)
+        ),
+        None,
+    )
 
 def is_valid_regex(term_regex):
     try:
@@ -116,33 +119,34 @@ def get_set_tracked_words_list():
 
 def get_regex_tracked_words_dict():
     regex_list = r_serv_term.smembers('all:tracker:regex')
-    dict_tracked_regex = {}
-    for regex in regex_list:
-        dict_tracked_regex[regex] = re.compile(regex)
-    return dict_tracked_regex
+    return {regex: re.compile(regex) for regex in regex_list}
 
 def get_tracked_term_list_item(term_uuid, date_from, date_to):
     all_item_id = []
     if date_from and date_to:
-        for date in r_serv_term.zrangebyscore('tracker:stat:{}'.format(term_uuid), int(date_from), int(date_to)):
-            all_item_id = all_item_id + list(r_serv_term.smembers('tracker:item:{}:{}'.format(term_uuid, date)))
+        for date in r_serv_term.zrangebyscore(f'tracker:stat:{term_uuid}', int(date_from), int(date_to)):
+            all_item_id = all_item_id + list(
+                r_serv_term.smembers(f'tracker:item:{term_uuid}:{date}')
+            )
+
     return all_item_id
 
 def is_term_tracked_in_global_level(term, term_type):
-    res = r_serv_term.smembers('all:tracker_uuid:{}:{}'.format(term_type, term))
-    if res:
+    if res := r_serv_term.smembers(f'all:tracker_uuid:{term_type}:{term}'):
         for elem_uuid in res:
-            if r_serv_term.hget('tracker:{}'.format(elem_uuid), 'level')=='1':
+            if r_serv_term.hget(f'tracker:{elem_uuid}', 'level') == '1':
                 return True
     return False
 
 def is_term_tracked_in_user_level(term, term_type, user_id):
-    res = r_serv_term.smembers('user:tracker:{}'.format(user_id))
-    if res:
+    if res := r_serv_term.smembers(f'user:tracker:{user_id}'):
         for elem_uuid in res:
-            if r_serv_term.hget('tracker:{}'.format(elem_uuid), 'tracked')== term:
-                if r_serv_term.hget('tracker:{}'.format(elem_uuid), 'type')== term_type:
-                    return True
+            if (
+                r_serv_term.hget(f'tracker:{elem_uuid}', 'tracked') == term
+                and r_serv_term.hget(f'tracker:{elem_uuid}', 'type')
+                == term_type
+            ):
+                return True
     return False
 
 def parse_json_term_to_add(dict_input, user_id):
@@ -164,27 +168,26 @@ def parse_json_term_to_add(dict_input, user_id):
 
     tags = dict_input.get('tags', [])
     mails = dict_input.get('mails', [])
-    res = verify_mail_list(mails)
-    if res:
+    if res := verify_mail_list(mails):
         return res
 
     ## TODO: add dashboard key
     level = dict_input.get('level', 1)
     try:
         level = int(level)
-        if level not in range(0, 1):
+        if level not in range(1):
             level = 1
     except:
         level = 1
 
     # check if term already tracked in global
-    if level==1:
-        if is_term_tracked_in_global_level(term, term_type):
-            return ({"status": "error", "reason": "Term already tracked"}, 409)
-    else:
-        if is_term_tracked_in_user_level(term, term_type, user_id):
-            return ({"status": "error", "reason": "Term already tracked"}, 409)
-
+    if (
+        level == 1
+        and is_term_tracked_in_global_level(term, term_type)
+        or level != 1
+        and is_term_tracked_in_user_level(term, term_type, user_id)
+    ):
+        return ({"status": "error", "reason": "Term already tracked"}, 409)
     term_uuid = add_tracked_term(term , term_type, user_id, level, tags, mails, description)
 
     return ({'term': term, 'type': term_type, 'uuid': term_uuid}, 200)
@@ -194,12 +197,11 @@ def parse_tracked_term_to_add(term , term_type, nb_words=1):
     if term_type=='regex':
         if not is_valid_regex(term):
             return ({"status": "error", "reason": "Invalid regex"}, 400)
-    elif term_type=='word' or term_type=='set':
+    elif term_type in ['word', 'set']:
         # force lowercase
         term = term.lower()
         word_set = set(term)
-        set_inter = word_set.intersection(special_characters)
-        if set_inter:
+        if set_inter := word_set.intersection(special_characters):
             return ({"status": "error", "reason": "special character not allowed", "message": "Please use a regex or remove all special characters"}, 400)
         words = term.split()
         # not a word
@@ -218,11 +220,9 @@ def parse_tracked_term_to_add(term , term_type, nb_words=1):
             words_set = set(words)
             words_set = sorted(words_set)
 
-            if nb_words > len(words_set):
-                nb_words = len(words_set)
-
+            nb_words = min(nb_words, len(words_set))
             term = ",".join(words_set)
-            term = "{};{}".format(term, nb_words)
+            term = f"{term};{nb_words}"
 
     elif term_type=='yara_custom':
         if not Tracker.is_valid_yara_rule(term):
@@ -239,160 +239,158 @@ def add_tracked_term(term , term_type, user_id, level, tags, mails, description,
     term_uuid =  str(uuid.uuid4())
 
     # YARA
-    if term_type == 'yara_custom' or term_type == 'yara_default':
+    if term_type in ['yara_custom', 'yara_default']:
         term = Tracker.save_yara_rule(term_type, term, tracker_uuid=term_uuid)
         term_type = 'yara'
 
     # create metadata
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'tracked',term) # # TODO: use hash
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'type', term_type)
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'date', datetime.date.today().strftime("%Y%m%d"))
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'user_id', user_id)
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'level', level)
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'dashboard', dashboard)
+    r_serv_term.hset(f'tracker:{term_uuid}', 'tracked', term)
+    r_serv_term.hset(f'tracker:{term_uuid}', 'type', term_type)
+    r_serv_term.hset(
+        f'tracker:{term_uuid}',
+        'date',
+        datetime.date.today().strftime("%Y%m%d"),
+    )
+
+    r_serv_term.hset(f'tracker:{term_uuid}', 'user_id', user_id)
+    r_serv_term.hset(f'tracker:{term_uuid}', 'level', level)
+    r_serv_term.hset(f'tracker:{term_uuid}', 'dashboard', dashboard)
 
     if description:
-        r_serv_term.hset('tracker:{}'.format(term_uuid), 'description', description)
+        r_serv_term.hset(f'tracker:{term_uuid}', 'description', description)
 
     # create all term set
-    r_serv_term.sadd('all:tracker:{}'.format(term_type), term)
+    r_serv_term.sadd(f'all:tracker:{term_type}', term)
 
     # create term - uuid map
-    r_serv_term.sadd('all:tracker_uuid:{}:{}'.format(term_type, term), term_uuid)
+    r_serv_term.sadd(f'all:tracker_uuid:{term_type}:{term}', term_uuid)
 
     # add display level set
     if level == 0: # user only
-        r_serv_term.sadd('user:tracker:{}'.format(user_id), term_uuid)
-        r_serv_term.sadd('user:tracker:{}:{}'.format(user_id, term_type), term_uuid)
+        r_serv_term.sadd(f'user:tracker:{user_id}', term_uuid)
+        r_serv_term.sadd(f'user:tracker:{user_id}:{term_type}', term_uuid)
     elif level == 1: # global
         r_serv_term.sadd('global:tracker', term_uuid)
-        r_serv_term.sadd('global:tracker:{}'.format(term_type), term_uuid)
+        r_serv_term.sadd(f'global:tracker:{term_type}', term_uuid)
 
     # create term tags list
     for tag in tags:
-        r_serv_term.sadd('tracker:tags:{}'.format(term_uuid), escape(tag) )
+        r_serv_term.sadd(f'tracker:tags:{term_uuid}', escape(tag))
 
     # create term tags mail notification list
     for mail in mails:
-        r_serv_term.sadd('tracker:mail:{}'.format(term_uuid), escape(mail) )
+        r_serv_term.sadd(f'tracker:mail:{term_uuid}', escape(mail))
 
     # toggle refresh module tracker list/set
-    r_serv_term.set('tracker:refresh:{}'.format(term_type), time.time())
+    r_serv_term.set(f'tracker:refresh:{term_type}', time.time())
 
     return term_uuid
 
 def parse_tracked_term_to_delete(dict_input, user_id):
     term_uuid = dict_input.get("uuid", None)
-    res = check_term_uuid_valid_access(term_uuid, user_id)
-    if res:
+    if res := check_term_uuid_valid_access(term_uuid, user_id):
         return res
 
     delete_term(term_uuid)
     return ({"uuid": term_uuid}, 200)
 
 def delete_term(term_uuid):
-    term = r_serv_term.hget('tracker:{}'.format(term_uuid), 'tracked')
-    term_type = r_serv_term.hget('tracker:{}'.format(term_uuid), 'type')
-    level = r_serv_term.hget('tracker:{}'.format(term_uuid), 'level')
-    r_serv_term.srem('all:tracker_uuid:{}:{}'.format(term_type, term), term_uuid)
+    term = r_serv_term.hget(f'tracker:{term_uuid}', 'tracked')
+    term_type = r_serv_term.hget(f'tracker:{term_uuid}', 'type')
+    level = r_serv_term.hget(f'tracker:{term_uuid}', 'level')
+    r_serv_term.srem(f'all:tracker_uuid:{term_type}:{term}', term_uuid)
     # Term not tracked by other users
-    if not r_serv_term.exists('all:tracker_uuid:{}:{}'.format(term_type, term)):
-        r_serv_term.srem('all:tracker:{}'.format(term_type), term)
+    if not r_serv_term.exists(f'all:tracker_uuid:{term_type}:{term}'):
+        r_serv_term.srem(f'all:tracker:{term_type}', term)
 
         # toggle refresh module tracker list/set
-        r_serv_term.set('tracker:refresh:{}'.format(term_type), time.time())
+        r_serv_term.set(f'tracker:refresh:{term_type}', time.time())
 
     if level == '0': # user only
-        user_id = term_type = r_serv_term.hget('tracker:{}'.format(term_uuid), 'user_id')
-        r_serv_term.srem('user:tracker:{}'.format(user_id), term_uuid)
-        r_serv_term.srem('user:tracker:{}:{}'.format(user_id, term_type), term_uuid)
+        user_id = term_type = r_serv_term.hget(f'tracker:{term_uuid}', 'user_id')
+        r_serv_term.srem(f'user:tracker:{user_id}', term_uuid)
+        r_serv_term.srem(f'user:tracker:{user_id}:{term_type}', term_uuid)
     elif level == '1': # global
         r_serv_term.srem('global:tracker', term_uuid)
-        r_serv_term.srem('global:tracker:{}'.format(term_type), term_uuid)
+        r_serv_term.srem(f'global:tracker:{term_type}', term_uuid)
 
     # delete metatadata
-    r_serv_term.delete('tracker:{}'.format(term_uuid))
+    r_serv_term.delete(f'tracker:{term_uuid}')
 
     # remove tags
-    r_serv_term.delete('tracker:tags:{}'.format(term_uuid))
+    r_serv_term.delete(f'tracker:tags:{term_uuid}')
 
     # remove mails
-    r_serv_term.delete('tracker:mail:{}'.format(term_uuid))
+    r_serv_term.delete(f'tracker:mail:{term_uuid}')
 
     # remove sources
-    r_serv_term.delete('tracker:sources:{}'.format(term_uuid))
+    r_serv_term.delete(f'tracker:sources:{term_uuid}')
 
     # remove item set
-    all_item_date = r_serv_term.zrange('tracker:stat:{}'.format(term_uuid), 0, -1)
+    all_item_date = r_serv_term.zrange(f'tracker:stat:{term_uuid}', 0, -1)
     for date in all_item_date:
-        r_serv_term.delete('tracker:item:{}:{}'.format(term_uuid, date))
-    r_serv_term.delete('tracker:stat:{}'.format(term_uuid))
+        r_serv_term.delete(f'tracker:item:{term_uuid}:{date}')
+    r_serv_term.delete(f'tracker:stat:{term_uuid}')
 
-    if term_type == 'yara':
-        # delete custom rule
-        if not Tracker.is_default_yara_rule(term):
-            filepath = Tracker.get_yara_rule_file_by_tracker_name(term)
-            if filepath:
-                os.remove(filepath)
+    if term_type == 'yara' and not Tracker.is_default_yara_rule(term):
+        if filepath := Tracker.get_yara_rule_file_by_tracker_name(term):
+            os.remove(filepath)
 
 def replace_tracker_description(term_uuid, description):
     description = escape(description)
-    r_serv_term.hset('tracker:{}'.format(term_uuid), 'description', description)
+    r_serv_term.hset(f'tracker:{term_uuid}', 'description', description)
 
 def replace_tracked_term_tags(term_uuid, tags):
-    r_serv_term.delete('tracker:tags:{}'.format(term_uuid))
+    r_serv_term.delete(f'tracker:tags:{term_uuid}')
     for tag in tags:
         tag = escape(tag)
-        r_serv_term.sadd('tracker:tags:{}'.format(term_uuid), tag)
+        r_serv_term.sadd(f'tracker:tags:{term_uuid}', tag)
 
 def replace_tracked_term_mails(term_uuid, mails):
-    res = verify_mail_list(mails)
-    if res:
+    if res := verify_mail_list(mails):
         return res
-    else:
-        r_serv_term.delete('tracker:mail:{}'.format(term_uuid))
-        for mail in mails:
-            mail = escape(mail)
-            r_serv_term.sadd('tracker:mail:{}'.format(term_uuid), mail)
+    r_serv_term.delete(f'tracker:mail:{term_uuid}')
+    for mail in mails:
+        mail = escape(mail)
+        r_serv_term.sadd(f'tracker:mail:{term_uuid}', mail)
 
 def get_term_uuid_list(term, term_type):
-    return list(r_serv_term.smembers('all:tracker_uuid:{}:{}'.format(term_type, term)))
+    return list(r_serv_term.smembers(f'all:tracker_uuid:{term_type}:{term}'))
 
 def get_term_tags(term_uuid):
-    return list(r_serv_term.smembers('tracker:tags:{}'.format(term_uuid)))
+    return list(r_serv_term.smembers(f'tracker:tags:{term_uuid}'))
 
 def get_term_mails(term_uuid):
-    return list(r_serv_term.smembers('tracker:mail:{}'.format(term_uuid)))
+    return list(r_serv_term.smembers(f'tracker:mail:{term_uuid}'))
 
 def add_tracked_item(term_uuid, item_id, item_date):
     # track item
-    r_serv_term.sadd('tracker:item:{}:{}'.format(term_uuid, item_date), item_id)
+    r_serv_term.sadd(f'tracker:item:{term_uuid}:{item_date}', item_id)
     # track nb item by date
-    r_serv_term.zadd('tracker:stat:{}'.format(term_uuid), item_date, int(item_date))
+    r_serv_term.zadd(f'tracker:stat:{term_uuid}', item_date, int(item_date))
 
 def create_token_statistics(item_date, word, nb):
-    r_serv_term.zincrby('stat_token_per_item_by_day:{}'.format(item_date), word, 1)
-    r_serv_term.zincrby('stat_token_total_by_day:{}'.format(item_date), word, nb)
+    r_serv_term.zincrby(f'stat_token_per_item_by_day:{item_date}', word, 1)
+    r_serv_term.zincrby(f'stat_token_total_by_day:{item_date}', word, nb)
     r_serv_term.sadd('stat_token_history', item_date)
 
 def delete_token_statistics_by_date(item_date):
-    r_serv_term.delete('stat_token_per_item_by_day:{}'.format(item_date))
-    r_serv_term.delete('stat_token_total_by_day:{}'.format(item_date))
+    r_serv_term.delete(f'stat_token_per_item_by_day:{item_date}')
+    r_serv_term.delete(f'stat_token_total_by_day:{item_date}')
     r_serv_term.srem('stat_token_history', item_date)
 
 def get_all_token_stat_history():
     return r_serv_term.smembers('stat_token_history')
 
 def get_tracked_term_last_updated_by_type(term_type):
-    epoch_update = r_serv_term.get('tracker:refresh:{}'.format(term_type))
+    epoch_update = r_serv_term.get(f'tracker:refresh:{term_type}')
     if not epoch_update:
         epoch_update = 0
     return float(epoch_update)
 
 def parse_get_tracker_term_item(dict_input, user_id):
     term_uuid = dict_input.get('uuid', None)
-    res = check_term_uuid_valid_access(term_uuid, user_id)
-    if res:
+    if res := check_term_uuid_valid_access(term_uuid, user_id):
         return res
 
 
@@ -413,40 +411,42 @@ def parse_get_tracker_term_item(dict_input, user_id):
     all_item_id = get_tracked_term_list_item(term_uuid, date_from, date_to)
     all_item_id = Item.get_item_list_desc(all_item_id)
 
-    res_dict = {}
-    res_dict['uuid'] = term_uuid
-    res_dict['date_from'] = date_from
-    res_dict['date_to'] = date_to
-    res_dict['items'] = all_item_id
+    res_dict = {
+        'uuid': term_uuid,
+        'date_from': date_from,
+        'date_to': date_to,
+        'items': all_item_id,
+    }
+
     return (res_dict, 200)
 
 def get_tracked_term_first_seen(term_uuid):
-    res = r_serv_term.zrange('tracker:stat:{}'.format(term_uuid), 0, 0)
-    if res:
+    if res := r_serv_term.zrange(f'tracker:stat:{term_uuid}', 0, 0):
         return res[0]
     else:
         return None
 
 
 def get_tracked_term_last_seen(term_uuid):
-    res = r_serv_term.zrevrange('tracker:stat:{}'.format(term_uuid), 0, 0)
-    if res:
+    if res := r_serv_term.zrevrange(f'tracker:stat:{term_uuid}', 0, 0):
         return res[0]
     else:
         return None
 
 def get_term_metedata(term_uuid, user_id=False, description=False, level=False, tags=False, mails=False, sparkline=False):
-    dict_uuid = {}
-    dict_uuid['term'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'tracked')
-    dict_uuid['type'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'type')
-    dict_uuid['date'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'date')
-    dict_uuid['description'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'description')
+    dict_uuid = {'term': r_serv_term.hget(f'tracker:{term_uuid}', 'tracked')}
+    dict_uuid['type'] = r_serv_term.hget(f'tracker:{term_uuid}', 'type')
+    dict_uuid['date'] = r_serv_term.hget(f'tracker:{term_uuid}', 'date')
+    dict_uuid['description'] = r_serv_term.hget(
+        f'tracker:{term_uuid}', 'description'
+    )
+
     dict_uuid['first_seen'] = get_tracked_term_first_seen(term_uuid)
     dict_uuid['last_seen'] = get_tracked_term_last_seen(term_uuid)
     if user_id:
-        dict_uuid['user_id'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'user_id')
+        dict_uuid['user_id'] = r_serv_term.hget(f'tracker:{term_uuid}', 'user_id')
     if level:
-        dict_uuid['level'] = r_serv_term.hget('tracker:{}'.format(term_uuid), 'level')
+        dict_uuid['level'] = r_serv_term.hget(f'tracker:{term_uuid}', 'level')
     if mails:
         dict_uuid['mails'] = get_list_trackeed_term_mails(term_uuid)
     if tags:
@@ -460,7 +460,7 @@ def get_tracked_term_sparkline(tracker_uuid, num_day=6):
     date_range_sparkline = Date.get_date_range(num_day)
     sparklines_value = []
     for date_day in date_range_sparkline:
-        nb_seen_this_day = r_serv_term.scard('tracker:item:{}:{}'.format(tracker_uuid, date_day))
+        nb_seen_this_day = r_serv_term.scard(f'tracker:item:{tracker_uuid}:{date_day}')
         if nb_seen_this_day is None:
             nb_seen_this_day = 0
         sparklines_value.append(int(nb_seen_this_day))
@@ -474,9 +474,9 @@ def get_list_tracked_term_stats_by_day(list_tracker_uuid, num_day=31, date_from=
     list_tracker_stats = []
     for tracker_uuid in list_tracker_uuid:
         dict_tracker_data = []
-        tracker = r_serv_term.hget('tracker:{}'.format(tracker_uuid), 'tracked')
+        tracker = r_serv_term.hget(f'tracker:{tracker_uuid}', 'tracked')
         for date_day in date_range:
-            nb_seen_this_day = r_serv_term.scard('tracker:item:{}:{}'.format(tracker_uuid, date_day))
+            nb_seen_this_day = r_serv_term.scard(f'tracker:item:{tracker_uuid}:{date_day}')
             if nb_seen_this_day is None:
                 nb_seen_this_day = 0
             dict_tracker_data.append({"date": date_day,"value": int(nb_seen_this_day)})
@@ -484,43 +484,43 @@ def get_list_tracked_term_stats_by_day(list_tracker_uuid, num_day=31, date_from=
     return list_tracker_stats
 
 def get_list_trackeed_term_tags(term_uuid):
-    res = r_serv_term.smembers('tracker:tags:{}'.format(term_uuid))
-    if res:
+    if res := r_serv_term.smembers(f'tracker:tags:{term_uuid}'):
         return list(res)
     else:
         return []
 
 def get_list_trackeed_term_mails(term_uuid):
-    res = r_serv_term.smembers('tracker:mail:{}'.format(term_uuid))
-    if res:
+    if res := r_serv_term.smembers(f'tracker:mail:{term_uuid}'):
         return list(res)
     else:
         return []
 
 def get_user_tracked_term_uuid(user_id, filter_type=None):
     if filter_type:
-        return list(r_serv_term.smembers('user:tracker:{}:{}'.format(user_id,filter_type)))
+        return list(r_serv_term.smembers(f'user:tracker:{user_id}:{filter_type}'))
     else:
-        return list(r_serv_term.smembers('user:tracker:{}'.format(user_id)))
+        return list(r_serv_term.smembers(f'user:tracker:{user_id}'))
 
 def get_global_tracked_term_uuid(filter_type=None):
     if filter_type:
-        return list(r_serv_term.smembers('global:tracker:{}'.format(filter_type)))
+        return list(r_serv_term.smembers(f'global:tracker:{filter_type}'))
     else:
         return list(r_serv_term.smembers('global:tracker'))
 
 def get_all_user_tracked_terms(user_id, filter_type=None):
-    all_user_term = []
     all_user_term_uuid = get_user_tracked_term_uuid(user_id, filter_type=filter_type)
 
-    for term_uuid in all_user_term_uuid:
-        all_user_term.append(get_term_metedata(term_uuid, tags=True, mails=True, sparkline=True))
-    return all_user_term
+    return [
+        get_term_metedata(term_uuid, tags=True, mails=True, sparkline=True)
+        for term_uuid in all_user_term_uuid
+    ]
 
 def get_all_global_tracked_terms(filter_type=None):
-    all_user_term = []
     all_user_term_uuid = get_global_tracked_term_uuid(filter_type=filter_type)
 
-    for term_uuid in all_user_term_uuid:
-        all_user_term.append(get_term_metedata(term_uuid, user_id=True, tags=True, mails=True, sparkline=True))
-    return all_user_term
+    return [
+        get_term_metedata(
+            term_uuid, user_id=True, tags=True, mails=True, sparkline=True
+        )
+        for term_uuid in all_user_term_uuid
+    ]
